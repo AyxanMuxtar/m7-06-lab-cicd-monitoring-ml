@@ -1,0 +1,131 @@
+# Vision Moderation — Prometheus Alert Rules
+# These rules implement multi-window burn-rate alerting for the SLOs
+# defined for the Vision Moderation service, plus ML-specific operational alerts.
+
+groups:
+  - name: vision-moderation-slo
+    rules:
+
+      # ─── 1. Availability: Fast burn ──────────────────────────────────────
+      # Detects rapid error-budget depletion.
+      # Burn-rate multiplier 14.4× means 2% of the 30-day budget is consumed in 1 hour.
+      # Uses dual-window approach: a 5-minute short window confirms the long window signal.
+      - alert: AvailabilityBurnFast
+        expr: |
+          (
+            sum(rate(http_requests_total{job="vision-moderation",code=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{job="vision-moderation"}[1h]))
+          ) > (14.4 * (1 - 0.995))
+          and
+          (
+            sum(rate(http_requests_total{job="vision-moderation",code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="vision-moderation"}[5m]))
+          ) > (14.4 * (1 - 0.995))
+        for: 2m
+        labels:
+          severity: page
+          service: vision-moderation
+          slo: availability
+        annotations:
+          summary: "Availability burn rate is consuming error budget too fast (14.4× in 1 h)"
+          description: >-
+            The 1-hour error rate exceeds 14.4× the allowed budget burn,
+            which would exhaust ~2% of the monthly error budget in one hour.
+            Confirmed by the 5-minute short window.
+          runbook: "https://runbooks.example.com/vision-moderation/availability-burn-fast"
+
+      # ─── 2. Availability: Slow burn ──────────────────────────────────────
+      # Catches gradual degradation: 10% of budget consumed over 24 hours.
+      # Burn-rate multiplier 3× with a 6-hour short window for confirmation.
+      - alert: AvailabilityBurnSlow
+        expr: |
+          (
+            sum(rate(http_requests_total{job="vision-moderation",code=~"5.."}[24h]))
+            /
+            sum(rate(http_requests_total{job="vision-moderation"}[24h]))
+          ) > (3 * (1 - 0.995))
+          and
+          (
+            sum(rate(http_requests_total{job="vision-moderation",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{job="vision-moderation"}[6h]))
+          ) > (3 * (1 - 0.995))
+        for: 30m
+        labels:
+          severity: ticket
+          service: vision-moderation
+          slo: availability
+        annotations:
+          summary: "Availability burn rate is steadily eroding error budget (3× over 24 h)"
+          description: >-
+            The 24-hour error rate exceeds 3× the budget burn rate,
+            which would consume ~10% of the monthly budget in one day.
+            Confirmed by the 6-hour short window.
+          runbook: "https://runbooks.example.com/vision-moderation/availability-burn-slow"
+
+      # ─── 3. Latency: P99 ────────────────────────────────────────────────
+      # Pages when p99 latency exceeds 1 second for 5 minutes.
+      - alert: LatencyP99High
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(http_request_duration_seconds_bucket{job="vision-moderation"}[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: page
+          service: vision-moderation
+          slo: latency
+        annotations:
+          summary: "P99 latency exceeds 1 s for the last 5 minutes"
+          description: >-
+            The 99th-percentile request latency for the Vision Moderation
+            service has exceeded the 1-second SLO threshold sustained over
+            a 5-minute window.
+          runbook: "https://runbooks.example.com/vision-moderation/latency-p99-high"
+
+      # ─── 4. Drift: PSI ──────────────────────────────────────────────────
+      # Fires a ticket when Population Stability Index for any major input
+      # feature drifts above the 0.2 threshold for 1 hour.
+      - alert: DriftDetected
+        expr: |
+          max(
+            model_feature_psi{job="vision-moderation", feature_tier="major"}
+          ) by (feature_name) > 0.2
+        for: 1h
+        labels:
+          severity: ticket
+          service: vision-moderation
+          slo: drift
+        annotations:
+          summary: "Input-feature drift detected (PSI > 0.2 for {{ $labels.feature_name }})"
+          description: >-
+            The Population Stability Index (PSI) for feature
+            {{ $labels.feature_name }} has exceeded 0.2 for over 1 hour,
+            indicating significant distribution shift from the training baseline.
+          runbook: "https://runbooks.example.com/vision-moderation/drift-detected"
+
+      # ─── 5. Model Version Mismatch ──────────────────────────────────────
+      # Pages when any replica is serving a model version that differs
+      # from the expected version registered in the model registry.
+      - alert: ModelVersionMismatch
+        expr: |
+          count(
+            model_serving_version_info{job="vision-moderation"}
+            unless on(model_version)
+            model_registry_expected_version{job="vision-moderation"}
+          ) > 0
+        for: 5m
+        labels:
+          severity: page
+          service: vision-moderation
+          slo: consistency
+        annotations:
+          summary: "Replica(s) serving unexpected model version"
+          description: >-
+            At least one replica reports a model_version that does not match
+            the expected version in the model registry. This can indicate a
+            failed rollout or stale replica.
+          runbook: "https://runbooks.example.com/vision-moderation/model-version-mismatch"

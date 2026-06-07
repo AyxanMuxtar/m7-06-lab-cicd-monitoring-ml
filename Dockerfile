@@ -20,6 +20,8 @@ RUN groupadd --gid 1000 appuser && \
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /app /app
 
+RUN pip uninstall -y setuptools pip wheel
+
 USER appuser
 
 EXPOSE 8080

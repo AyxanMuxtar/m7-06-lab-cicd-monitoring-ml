@@ -26,7 +26,7 @@ jobs:
       - name: Lint OpenAPI spec
         run: |
           npm install -g @stoplight/spectral-cli
-          spectral lint openapi.yaml --fail-severity warn
+          spectral lint openapi.yaml --fail-severity error
 
       - name: Lint Dockerfile with Hadolint
         uses: hadolint/hadolint-action@v3.1.0

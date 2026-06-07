@@ -19,6 +19,8 @@ paths:
     post:
       operationId: moderateImage
       summary: Classify an image for policy violations
+      tags:
+        - Moderation
       description: >-
         Accepts an image (URL or base64) and returns moderation labels
         with confidence scores.
@@ -49,6 +51,9 @@ paths:
     get:
       operationId: healthCheck
       summary: Health check
+      description: Returns 200 if the service is healthy and ready to serve traffic.
+      tags:
+        - Infrastructure
       responses:
         "200":
           description: Service is healthy
